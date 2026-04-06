@@ -23,13 +23,24 @@ interface Props {
   onSaved: () => void;
 }
 
+type SaveStatus = "DONE" | "PARTIAL" | "SKIPPED";
+
 export function CompleteLogModal({ log, onClose, onSaved }: Props) {
   const [actualValue, setActualValue] = useState(
     log.actualValue?.toString() ?? log.targetValue?.toString() ?? ""
   );
   const [notes, setNotes] = useState(log.notes ?? "");
-  const [status, setStatus] = useState<"DONE" | "SKIPPED">("DONE");
+  const [status, setStatus] = useState<SaveStatus>(
+    log.status === "SKIPPED" ? "SKIPPED" : log.status === "PARTIAL" ? "PARTIAL" : "DONE"
+  );
   const [saving, setSaving] = useState(false);
+
+  const hasTarget = log.targetValue !== null;
+  const parsedActual = parseFloat(actualValue);
+  const progress =
+    hasTarget && !isNaN(parsedActual)
+      ? Math.min(100, (parsedActual / log.targetValue!) * 100)
+      : null;
 
   async function handleSave() {
     setSaving(true);
@@ -38,7 +49,7 @@ export function CompleteLogModal({ log, onClose, onSaved }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         status,
-        actualValue: actualValue !== "" ? actualValue : null,
+        actualValue: status !== "SKIPPED" && actualValue !== "" ? actualValue : null,
         notes,
       }),
     });
@@ -61,8 +72,8 @@ export function CompleteLogModal({ log, onClose, onSaved }: Props) {
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Status */}
-          <div className="flex gap-3">
+          {/* Status buttons */}
+          <div className="flex gap-2">
             <button
               onClick={() => setStatus("DONE")}
               className={cn(
@@ -74,6 +85,19 @@ export function CompleteLogModal({ log, onClose, onSaved }: Props) {
             >
               ✅ Feito
             </button>
+            {hasTarget && (
+              <button
+                onClick={() => setStatus("PARTIAL")}
+                className={cn(
+                  "flex-1 py-3 rounded-xl font-medium text-sm transition-all",
+                  status === "PARTIAL"
+                    ? "bg-orange-500 text-white"
+                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                )}
+              >
+                ⏳ Parcial
+              </button>
+            )}
             <button
               onClick={() => setStatus("SKIPPED")}
               className={cn(
@@ -87,11 +111,11 @@ export function CompleteLogModal({ log, onClose, onSaved }: Props) {
             </button>
           </div>
 
-          {/* Value */}
-          {log.targetValue !== null && status === "DONE" && (
+          {/* Value input */}
+          {hasTarget && (status === "DONE" || status === "PARTIAL") && (
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
-                Quantidade realizada
+                {status === "PARTIAL" ? "Quanto fiz até agora" : "Quantidade realizada"}
                 {log.unit && (
                   <span className="ml-1 text-slate-500">({log.unit})</span>
                 )}
@@ -111,12 +135,31 @@ export function CompleteLogModal({ log, onClose, onSaved }: Props) {
                   </span>
                 )}
               </div>
-              {log.targetValue && (
-                <p className="text-xs text-slate-500 mt-1">
-                  Meta: {log.targetValue} {log.unit}
-                </p>
+              {/* Progress bar */}
+              {progress !== null && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>{parsedActual || 0} {log.unit}</span>
+                    <span>meta: {log.targetValue} {log.unit}</span>
+                  </div>
+                  <div className="w-full bg-slate-600 rounded-full h-1.5">
+                    <div
+                      className={cn(
+                        "h-1.5 rounded-full transition-all",
+                        progress >= 100 ? "bg-green-500" : "bg-orange-400"
+                      )}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
+          )}
+
+          {status === "PARTIAL" && (
+            <p className="text-xs text-orange-400 bg-orange-500/10 rounded-lg px-3 py-2">
+              A rotina vai continuar aparecendo como pendente para você completar depois.
+            </p>
           )}
 
           {/* Notes */}

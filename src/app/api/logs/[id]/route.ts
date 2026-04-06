@@ -11,10 +11,13 @@ export async function PATCH(
   const data: Record<string, unknown> = {};
   if (body.status !== undefined) data.status = body.status;
   if (body.actualValue !== undefined)
-    data.actualValue = body.actualValue !== "" ? parseFloat(body.actualValue) : null;
+    data.actualValue =
+      body.actualValue !== "" ? parseFloat(body.actualValue) : null;
   if (body.notes !== undefined) data.notes = body.notes;
+
   if (body.status === "DONE") data.completedAt = new Date();
-  if (body.status === "PENDING") data.completedAt = null;
+  if (body.status === "PENDING" || body.status === "PARTIAL")
+    data.completedAt = null;
 
   const log = await prisma.routineLog.update({ where: { id }, data });
   return NextResponse.json(log);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { format } from "date-fns";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { format, addDays, startOfDay, isSameDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
 import { TodayCard } from "@/components/TodayCard";
@@ -15,7 +15,7 @@ interface Log {
   targetValue: number | null;
   actualValue: number | null;
   unit: string | null;
-  status: "PENDING" | "DONE" | "SKIPPED";
+  status: "PENDING" | "DONE" | "SKIPPED" | "PARTIAL";
   notes: string | null;
   routine: {
     id: string;
@@ -26,29 +26,53 @@ interface Log {
   };
 }
 
+function buildDateRange(): Date[] {
+  const today = startOfDay(new Date());
+  return Array.from({ length: 29 }, (_, i) => addDays(today, i - 14));
+}
+
 export default function TodayPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("ALL");
+  const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
+  const dateStripRef = useRef<HTMLDivElement>(null);
+  const todayRef = useRef<HTMLButtonElement>(null);
+
+  const dates = buildDateRange();
+  const today = startOfDay(new Date());
+  const isToday = isSameDay(selectedDate, today);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/today");
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+    const res = await fetch(`/api/today?date=${dateStr}`);
     const data = await res.json();
     setLogs(data);
     setLoading(false);
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     load();
+    if (!isToday) return;
     const interval = setInterval(load, 60_000);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [load, isToday]);
 
-  const today = new Date();
-  const dateLabel = format(today, "EEEE, d 'de' MMMM", { locale: ptBR });
+  // Scroll date strip to today on mount
+  useEffect(() => {
+    if (todayRef.current && dateStripRef.current) {
+      const strip = dateStripRef.current;
+      const btn = todayRef.current;
+      strip.scrollLeft =
+        btn.offsetLeft - strip.clientWidth / 2 + btn.clientWidth / 2;
+    }
+  }, []);
+
+  const dateLabel = format(selectedDate, "EEEE, d 'de' MMMM", { locale: ptBR });
 
   const pending = logs.filter((l) => l.status === "PENDING");
+  const partial = logs.filter((l) => l.status === "PARTIAL");
   const done = logs.filter((l) => l.status === "DONE");
   const skipped = logs.filter((l) => l.status === "SKIPPED");
 
@@ -59,6 +83,7 @@ export default function TodayPage() {
 
   const grouped = {
     pending: filtered.filter((l) => l.status === "PENDING"),
+    partial: filtered.filter((l) => l.status === "PARTIAL"),
     done: filtered.filter((l) => l.status === "DONE"),
     skipped: filtered.filter((l) => l.status === "SKIPPED"),
   };
@@ -66,6 +91,43 @@ export default function TodayPage() {
   return (
     <div>
       <NotificationScheduler logs={logs} />
+
+      {/* Date strip */}
+      <div
+        ref={dateStripRef}
+        className="flex gap-1.5 overflow-x-auto pb-2 mb-4 -mx-4 px-4"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {dates.map((date) => {
+          const isSelected = isSameDay(date, selectedDate);
+          const isTodayDate = isSameDay(date, today);
+          const isPast = date < today;
+
+          return (
+            <button
+              key={date.toISOString()}
+              ref={isTodayDate ? todayRef : undefined}
+              onClick={() => setSelectedDate(date)}
+              className={`shrink-0 flex flex-col items-center px-2.5 py-2 rounded-xl transition-all min-w-[44px] ${
+                isSelected
+                  ? "bg-indigo-600 text-white"
+                  : isTodayDate
+                  ? "bg-slate-700 text-white ring-1 ring-indigo-500"
+                  : isPast
+                  ? "bg-slate-800/60 text-slate-500"
+                  : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              <span className="text-[10px] font-medium uppercase">
+                {format(date, "EEE", { locale: ptBR })}
+              </span>
+              <span className="text-base font-bold leading-tight">
+                {format(date, "d")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -95,6 +157,11 @@ export default function TodayPage() {
         <span className="text-xs bg-slate-700 text-slate-300 px-3 py-1 rounded-full">
           ⏳ {pending.length} pendentes
         </span>
+        {partial.length > 0 && (
+          <span className="text-xs bg-orange-900/40 text-orange-400 px-3 py-1 rounded-full">
+            ⏸ {partial.length} parciais
+          </span>
+        )}
         <span className="text-xs bg-green-900/40 text-green-400 px-3 py-1 rounded-full">
           ✅ {done.length} feitos
         </span>
@@ -103,7 +170,10 @@ export default function TodayPage() {
         </span>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 mb-5">
+      <div
+        className="flex gap-2 overflow-x-auto pb-1 mb-5"
+        style={{ scrollbarWidth: "none" }}
+      >
         <button
           onClick={() => setFilter("ALL")}
           className={`shrink-0 text-xs px-3 py-1.5 rounded-full font-medium transition-all border ${
@@ -133,13 +203,25 @@ export default function TodayPage() {
         <div className="text-center py-16 text-slate-500">Carregando...</div>
       ) : logs.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-slate-400 text-lg mb-2">Nenhuma rotina para hoje</p>
+          <p className="text-slate-400 text-lg mb-2">Nenhuma rotina para este dia</p>
           <p className="text-slate-600 text-sm">
             Vá em Rotinas para adicionar suas atividades
           </p>
         </div>
       ) : (
         <div className="space-y-6">
+          {grouped.partial.length > 0 && (
+            <section>
+              <h2 className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-3">
+                Em progresso
+              </h2>
+              <div className="space-y-2">
+                {grouped.partial.map((log) => (
+                  <TodayCard key={log.id} log={log} onRefresh={load} />
+                ))}
+              </div>
+            </section>
+          )}
           {grouped.pending.length > 0 && (
             <section>
               <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">

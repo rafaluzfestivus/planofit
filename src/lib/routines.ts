@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { startOfDay, endOfDay, parseISO } from "date-fns";
+import { startOfDay, endOfDay } from "date-fns";
 
 export function getDaysArray(days: string | null): number[] {
   if (!days) return [0, 1, 2, 3, 4, 5, 6];
@@ -18,52 +18,43 @@ export function getTimesArray(times: string): string[] {
   }
 }
 
+export function shouldRunOnDate(
+  frequency: string,
+  days: string | null,
+  date: Date
+): boolean {
+  const dayOfWeek = date.getDay(); // 0 = Sunday
+  if (frequency === "DAILY") return true;
+  const activeDays = getDaysArray(days);
+  return activeDays.includes(dayOfWeek);
+}
+
 export function shouldRunToday(
   frequency: string,
   days: string | null
 ): boolean {
-  const today = new Date().getDay(); // 0 = Sunday
-  if (frequency === "DAILY") return true;
-  const activeDays = getDaysArray(days);
-  return activeDays.includes(today);
+  return shouldRunOnDate(frequency, days, new Date());
 }
 
-export async function generateTodayLogs() {
+export async function generateLogsForDate(date: Date) {
   const routines = await prisma.routine.findMany({
     where: { isActive: true },
   });
 
-  const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const dateStart = startOfDay(date);
+  const dateEnd = endOfDay(date);
 
   for (const routine of routines) {
-    if (!shouldRunToday(routine.frequency, routine.days)) continue;
+    if (!shouldRunOnDate(routine.frequency, routine.days, date)) continue;
 
     const times = getTimesArray(routine.times);
     for (const time of times) {
       const [hours, minutes] = time.split(":").map(Number);
-      const scheduledAt = new Date(todayStart);
+      const scheduledAt = new Date(dateStart);
       scheduledAt.setHours(hours, minutes, 0, 0);
 
-      // Check if log already exists for this routine+time today
-      const existing = await prisma.routineLog.findFirst({
-        where: {
-          routineId: routine.id,
-          scheduledAt: {
-            gte: todayStart,
-            lte: todayEnd,
-          },
-          // Match by scheduled time within 1 min tolerance
-        },
-      });
-
-      // Find exact time match
       const exactExisting = await prisma.routineLog.findFirst({
-        where: {
-          routineId: routine.id,
-          scheduledAt: scheduledAt,
-        },
+        where: { routineId: routine.id, scheduledAt },
       });
 
       if (!exactExisting) {
@@ -79,4 +70,8 @@ export async function generateTodayLogs() {
       }
     }
   }
+}
+
+export async function generateTodayLogs() {
+  return generateLogsForDate(new Date());
 }

@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Routine {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String
+  targetValue Float?
+  unit        String?
+  isActive    Boolean  @default(true)
+
+  frequency     String
+  days          String?
+  times         String
+
+  notifyBefore  Int     @default(0)
+  snoozeMinutes Int     @default(10)
+
+  googleEventId String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  logs        RoutineLog[]
+}
+
+model RoutineLog {
+  id          String   @id @default(cuid())
+  routineId   String
+  routine     Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime
+  completedAt DateTime?
+
+  targetValue Float?
+  actualValue Float?
+  unit        String?
+
+  status      String   @default("PENDING")
+  notes       String?
+
+  createdAt   DateTime @default(now())
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
+
+model AppSettings {
+  id                 String  @id @default("singleton")
+  googleCalendarSync Boolean @default(false)
+  googleRefreshToken String?
+}

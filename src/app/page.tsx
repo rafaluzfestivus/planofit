@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { format, addDays, startOfDay, isSameDay } from "date-fns";
+import { useCallback, useEffect, useState } from "react";
+import { format, addDays, startOfDay, isSameDay, addWeeks, subWeeks, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { TodayCard } from "@/components/TodayCard";
 import { NotificationScheduler } from "@/components/NotificationScheduler";
 import { CATEGORIES } from "@/types";
@@ -26,9 +26,10 @@ interface Log {
   };
 }
 
-function buildDateRange(): Date[] {
-  const today = startOfDay(new Date());
-  return Array.from({ length: 29 }, (_, i) => addDays(today, i - 14));
+// Returns the 7 days of the week containing the given date (Mon–Sun)
+function weekOf(date: Date): Date[] {
+  const monday = startOfWeek(date, { weekStartsOn: 1 });
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 }
 
 export default function TodayPage() {
@@ -36,12 +37,18 @@ export default function TodayPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("ALL");
   const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
-  const dateStripRef = useRef<HTMLDivElement>(null);
-  const todayRef = useRef<HTMLButtonElement>(null);
+  // weekAnchor controls which week is displayed in the strip
+  const [weekAnchor, setWeekAnchor] = useState<Date>(startOfDay(new Date()));
 
-  const dates = buildDateRange();
   const today = startOfDay(new Date());
   const isToday = isSameDay(selectedDate, today);
+  const week = weekOf(weekAnchor);
+
+  // When selecting a date outside the current week, auto-jump the week strip
+  function selectDate(date: Date) {
+    setSelectedDate(date);
+    setWeekAnchor(date);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,17 +66,8 @@ export default function TodayPage() {
     return () => clearInterval(interval);
   }, [load, isToday]);
 
-  // Scroll date strip to today on mount
-  useEffect(() => {
-    if (todayRef.current && dateStripRef.current) {
-      const strip = dateStripRef.current;
-      const btn = todayRef.current;
-      strip.scrollLeft =
-        btn.offsetLeft - strip.clientWidth / 2 + btn.clientWidth / 2;
-    }
-  }, []);
-
   const dateLabel = format(selectedDate, "EEEE, d 'de' MMMM", { locale: ptBR });
+  const monthLabel = format(weekAnchor, "MMMM yyyy", { locale: ptBR });
 
   const pending = logs.filter((l) => l.status === "PENDING");
   const partial = logs.filter((l) => l.status === "PARTIAL");
@@ -92,41 +90,70 @@ export default function TodayPage() {
     <div>
       <NotificationScheduler logs={logs} />
 
-      {/* Date strip */}
-      <div
-        ref={dateStripRef}
-        className="flex gap-1.5 overflow-x-auto pb-2 mb-4 -mx-4 px-4"
-        style={{ scrollbarWidth: "none" }}
-      >
-        {dates.map((date) => {
-          const isSelected = isSameDay(date, selectedDate);
-          const isTodayDate = isSameDay(date, today);
-          const isPast = date < today;
+      {/* Week navigation */}
+      <div className="mb-4">
+        {/* Month label + arrows + Hoje */}
+        <div className="flex items-center justify-between mb-2">
+          <button
+            onClick={() => setWeekAnchor((a) => subWeeks(a, 1))}
+            className="p-1.5 text-slate-400 hover:text-white transition-colors"
+          >
+            <ChevronLeft size={18} />
+          </button>
 
-          return (
-            <button
-              key={date.toISOString()}
-              ref={isTodayDate ? todayRef : undefined}
-              onClick={() => setSelectedDate(date)}
-              className={`shrink-0 flex flex-col items-center px-2.5 py-2 rounded-xl transition-all min-w-[44px] ${
-                isSelected
-                  ? "bg-indigo-600 text-white"
-                  : isTodayDate
-                  ? "bg-slate-700 text-white ring-1 ring-indigo-500"
-                  : isPast
-                  ? "bg-slate-800/60 text-slate-500"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-              }`}
-            >
-              <span className="text-[10px] font-medium uppercase">
-                {format(date, "EEE", { locale: ptBR })}
-              </span>
-              <span className="text-base font-bold leading-tight">
-                {format(date, "d")}
-              </span>
-            </button>
-          );
-        })}
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-slate-300 capitalize">
+              {monthLabel}
+            </span>
+            {!isToday && (
+              <button
+                onClick={() => { selectDate(today); }}
+                className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-full font-medium transition-all"
+              >
+                Hoje
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => setWeekAnchor((a) => addWeeks(a, 1))}
+            className="p-1.5 text-slate-400 hover:text-white transition-colors"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+
+        {/* 7-day strip */}
+        <div className="grid grid-cols-7 gap-1">
+          {week.map((date) => {
+            const isSelected = isSameDay(date, selectedDate);
+            const isTodayDate = isSameDay(date, today);
+            const isPast = date < today;
+
+            return (
+              <button
+                key={date.toISOString()}
+                onClick={() => selectDate(date)}
+                className={`flex flex-col items-center py-2 rounded-xl transition-all ${
+                  isSelected
+                    ? "bg-indigo-600 text-white"
+                    : isTodayDate
+                    ? "bg-slate-700 text-white ring-1 ring-indigo-400"
+                    : isPast
+                    ? "bg-slate-800/50 text-slate-500 hover:bg-slate-700 hover:text-slate-300"
+                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                }`}
+              >
+                <span className="text-[10px] font-medium uppercase">
+                  {format(date, "EEE", { locale: ptBR })}
+                </span>
+                <span className="text-base font-bold leading-tight">
+                  {format(date, "d")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex items-center justify-between mb-4">
